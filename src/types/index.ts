@@ -142,6 +142,18 @@ export interface ThemeSettings {
   reducedMotion: boolean;
 }
 
+export const REMINDER_TYPE_LABELS: Record<ReminderType, string> = {
+  '5min': '5 minutes before',
+  '15min': '15 minutes before',
+  '30min': '30 minutes before',
+  '1hour': '1 hour before',
+  '3hours': '3 hours before',
+  '12hours': '12 hours before',
+  '24hours': '24 hours before',
+  '2days': '2 days before',
+  custom: 'Custom',
+};
+
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   assignment: 'Assignment',
   pit: 'PIT',

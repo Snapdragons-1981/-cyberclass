@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
-import type { Task, TaskStatus, TaskPriority, TaskType } from '@/types';
+import { computeRemindAt } from '@/lib/helpers';
+import type { Task, TaskStatus, TaskPriority, TaskType, Reminder, ReminderType } from '@/types';
 
 function getClient() {
   const client = createClient();
@@ -131,6 +132,43 @@ export async function getTaskStats(userId: string, semesterId?: string) {
   const completion_rate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return { total, overdue, due_today, due_this_week, completed, completion_rate };
+}
+
+export async function getReminder(taskId: string) {
+  const supabase = getClient();
+  const { data, error } = await supabase
+    .from('reminders')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Reminder | null;
+}
+
+export async function saveReminder(
+  taskId: string,
+  userId: string,
+  reminderType: ReminderType | '',
+  dueDate: string | null,
+  dueTime: string | null
+) {
+  const supabase = getClient();
+  const { error: delError } = await supabase.from('reminders').delete().eq('task_id', taskId);
+  if (delError) throw delError;
+
+  if (!reminderType || reminderType === 'custom' || !dueDate) return;
+
+  const { error: insError } = await supabase.from('reminders').insert({
+    task_id: taskId,
+    user_id: userId,
+    remind_at: computeRemindAt(dueDate, dueTime, reminderType),
+    reminder_type: reminderType,
+    is_sent: false,
+  });
+  if (insError) throw insError;
 }
 
 export async function searchTasks(userId: string, query: string) {

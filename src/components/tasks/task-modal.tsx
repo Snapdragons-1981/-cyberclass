@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Calendar, Clock, Tag, AlertTriangle, BookOpen, FileText } from 'lucide-react';
+import { X, Calendar, Clock, Tag, AlertTriangle, BookOpen, FileText, Bell } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Task, TaskType, TaskPriority, Course } from '@/types';
-import { TASK_TYPE_LABELS } from '@/types';
-import { createTask, updateTask } from '@/services/tasks';
+import type { Task, TaskType, TaskPriority, Course, ReminderType } from '@/types';
+import { TASK_TYPE_LABELS, REMINDER_TYPE_LABELS } from '@/types';
+import { createTask, updateTask, saveReminder, getReminder } from '@/services/tasks';
 import { createClient } from '@/lib/supabase/client';
 
 interface TaskModalProps {
@@ -25,6 +25,7 @@ export function TaskModal({ isOpen, onClose, onSave, editingTask, userId }: Task
   const [due_date, setDueDate] = useState('');
   const [due_time, setDueTime] = useState('');
   const [estimated_minutes, setEstimatedMinutes] = useState('');
+  const [reminder_type, setReminderType] = useState<ReminderType | ''>('');
   const [notes, setNotes] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [saving, setSaving] = useState(false);
@@ -67,7 +68,16 @@ export function TaskModal({ isOpen, onClose, onSave, editingTask, userId }: Task
       setEstimatedMinutes('');
       setNotes('');
     }
+    setReminderType('');
   }, [editingTask, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && editingTask) {
+      getReminder(editingTask.id)
+        .then(r => setReminderType(r?.reminder_type ?? ''))
+        .catch(() => setReminderType(''));
+    }
+  }, [isOpen, editingTask]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +105,13 @@ export function TaskModal({ isOpen, onClose, onSave, editingTask, userId }: Task
         result = await updateTask(editingTask.id, taskData);
       } else {
         result = await createTask(taskData);
+      }
+
+      try {
+        await saveReminder(result.id, userId, reminder_type, due_date, due_time);
+      } catch (reminderError) {
+        console.error('Failed to save reminder:', reminderError);
+        toast.error('Task saved, but the reminder could not be set');
       }
 
       onSave?.(result);
@@ -242,6 +259,25 @@ export function TaskModal({ isOpen, onClose, onSave, editingTask, userId }: Task
                 className="w-full px-4 py-2.5 rounded-lg bg-black/30 border border-cyan-500/20 text-sm text-gray-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/30"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5 tracking-wider">
+              <Bell className="w-3 h-3 inline mr-1" />
+              REMIND ME VIA EMAIL
+            </label>
+            <select
+              value={reminder_type}
+              onChange={(e) => setReminderType(e.target.value as ReminderType | '')}
+              className="w-full px-4 py-2.5 rounded-lg bg-black/30 border border-cyan-500/20 text-sm text-gray-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/30"
+            >
+              <option value="">No reminder (email only when 24h before / overdue)</option>
+              {Object.entries(REMINDER_TYPE_LABELS)
+                .filter(([key]) => key !== 'custom')
+                .map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+            </select>
           </div>
 
           <div className="flex gap-3 pt-2">

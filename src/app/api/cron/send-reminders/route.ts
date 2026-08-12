@@ -3,6 +3,18 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
+interface CourseRef {
+  name: string;
+  code: string;
+}
+
+interface ReminderRow {
+  id: string;
+  remind_at: string;
+  reminder_type: string;
+  is_sent: boolean;
+}
+
 interface TaskRow {
   id: string;
   user_id: string;
@@ -10,7 +22,20 @@ interface TaskRow {
   due_date: string | null;
   due_time: string | null;
   status: string;
-  course: { name: string; code: string } | null;
+  course: CourseRef | null;
+  reminders?: ReminderRow[] | null;
+}
+
+type AlertType = 'due_soon' | 'overdue' | 'reminder';
+
+interface Alert {
+  task: TaskRow;
+  type: AlertType;
+  message: string;
+}
+
+function formatDue(task: TaskRow): string {
+  return task.due_time ? `${task.due_date} at ${task.due_time}` : task.due_date ?? '';
 }
 
 export async function GET(request: NextRequest) {
@@ -35,7 +60,9 @@ export async function GET(request: NextRequest) {
 
   const { data: tasks, error } = await supabase
     .from('tasks')
-    .select('id, user_id, title, due_date, due_time, status, course:courses(name, code)')
+    .select(
+      'id, user_id, title, due_date, due_time, status, course:courses(name, code), reminders(id, remind_at, reminder_type, is_sent)'
+    )
     .not('status', 'in', '("completed","archived")')
     .not('due_date', 'is', null);
 
@@ -45,6 +72,7 @@ export async function GET(request: NextRequest) {
 
   const taskRows = (tasks ?? []) as unknown as TaskRow[];
   const taskIds = taskRows.map(t => t.id);
+
   const existingQuery = taskIds.length
     ? await supabase
         .from('notifications')
@@ -57,10 +85,28 @@ export async function GET(request: NextRequest) {
     ((existingQuery.data ?? []) as { task_id: string }[]).map(n => n.task_id)
   );
 
-  const alerts = new Map<string, { task: TaskRow; type: 'due_soon' | 'overdue' }[]>();
+  const alerts = new Map<string, Alert[]>();
+  const firedReminderIds: string[] = [];
 
   for (const task of taskRows) {
-    if (!task.due_date || alreadyNotified.has(task.id)) continue;
+    const reminder = task.reminders?.[0] ?? null;
+
+    if (reminder) {
+      if (!reminder.is_sent && new Date(reminder.remind_at) <= now) {
+        const list = alerts.get(task.user_id) ?? [];
+        list.push({
+          task,
+          type: 'reminder',
+          message: `Reminder: ${task.title} is due ${formatDue(task)}`,
+        });
+        alerts.set(task.user_id, list);
+        firedReminderIds.push(reminder.id);
+      }
+      continue;
+    }
+
+    if (alreadyNotified.has(task.id)) continue;
+    if (!task.due_date) continue;
 
     const due = task.due_time
       ? new Date(`${task.due_date}T${task.due_time}`)
@@ -68,9 +114,16 @@ export async function GET(request: NextRequest) {
     if (Number.isNaN(due.getTime())) continue;
     if (due > in24h) continue;
 
-    const type: 'due_soon' | 'overdue' = due < now ? 'overdue' : 'due_soon';
+    const type: AlertType = due < now ? 'overdue' : 'due_soon';
     const list = alerts.get(task.user_id) ?? [];
-    list.push({ task, type });
+    list.push({
+      task,
+      type,
+      message:
+        type === 'overdue'
+          ? `${task.title} is now overdue`
+          : `${task.title} is due within 24 hours`,
+    });
     alerts.set(task.user_id, list);
   }
 
@@ -92,14 +145,19 @@ export async function GET(request: NextRequest) {
 
     const overdueCount = items.filter(i => i.type === 'overdue').length;
     const soonCount = items.filter(i => i.type === 'due_soon').length;
-    const subject = `CyberClass: ${overdueCount} overdue, ${soonCount} due within 24 hours`;
+    const remindCount = items.filter(i => i.type === 'reminder').length;
+
+    const parts: string[] = [];
+    if (overdueCount) parts.push(`${overdueCount} overdue`);
+    if (soonCount) parts.push(`${soonCount} due within 24 hours`);
+    if (remindCount) parts.push(`${remindCount} reminders`);
+    const subject = `CyberClass: ${parts.join(', ') || 'task alerts'}`;
 
     const lines = items.map(({ task }) => {
-      const when = task.due_time ? `${task.due_date} at ${task.due_time}` : task.due_date;
       const course = task.course
         ? `${task.course.code ?? ''} ${task.course.name}`.trim()
         : 'No course';
-      return `- ${task.title} (${course}) - due ${when}`;
+      return `- ${task.title} (${course}) - due ${formatDue(task)}`;
     });
 
     if (resendApiKey) {
@@ -114,7 +172,7 @@ export async function GET(request: NextRequest) {
             from: emailFrom,
             to: [email],
             subject,
-            text: `Hi, you have ${items.length} task(s) due soon or overdue:\n\n${lines.join('\n')}\n\n-- CyberClass`,
+            text: `Hi, ${items.length} task(s) need attention:\n\n${lines.join('\n')}\n\n-- CyberClass`,
           }),
         });
         if (res.ok) sentEmails++;
@@ -123,19 +181,22 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const notifRows = items.map(({ task, type }) => ({
+    const notifRows = items.map(({ task, type, message }) => ({
       user_id: userId,
       task_id: task.id,
-      title: type === 'overdue' ? 'Task overdue' : 'Due soon',
-      message: type === 'overdue'
-        ? `${task.title} is now overdue`
-        : `${task.title} is due within 24 hours`,
+      title:
+        type === 'reminder' ? 'Task reminder' : type === 'overdue' ? 'Task overdue' : 'Due soon',
+      message,
       type,
       is_read: false,
     }));
 
     const { error: notifError } = await supabase.from('notifications').insert(notifRows);
     if (!notifError) notified += notifRows.length;
+  }
+
+  if (firedReminderIds.length) {
+    await supabase.from('reminders').update({ is_sent: true }).in('id', firedReminderIds);
   }
 
   return NextResponse.json({ sent: sentEmails, notified });

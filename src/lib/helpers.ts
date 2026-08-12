@@ -1,5 +1,22 @@
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
-import type { TaskPriority, TaskStatus, TaskType } from '@/types';
+import type { TaskPriority, TaskStatus, TaskType, ReminderType } from '@/types';
+
+const REMINDER_OFFSETS_MS: Record<ReminderType, number> = {
+  '5min': 5 * 60 * 1000,
+  '15min': 15 * 60 * 1000,
+  '30min': 30 * 60 * 1000,
+  '1hour': 60 * 60 * 1000,
+  '3hours': 3 * 60 * 60 * 1000,
+  '12hours': 12 * 60 * 60 * 1000,
+  '24hours': 24 * 60 * 60 * 1000,
+  '2days': 2 * 24 * 60 * 60 * 1000,
+  custom: 0,
+};
+
+export function computeRemindAt(dueDate: string | null, dueTime: string | null, reminderType: ReminderType): string {
+  const due = dueTime ? new Date(`${dueDate}T${dueTime}`) : new Date(`${dueDate}T23:59:59`);
+  return new Date(due.getTime() - (REMINDER_OFFSETS_MS[reminderType] ?? 0)).toISOString();
+}
 
 export function formatDate(date: string | Date, formatStr = 'MMM dd, yyyy'): string {
   return format(new Date(date), formatStr);
