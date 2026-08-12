@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { getCourses, createCourse, updateCourse, deleteCourse } from '@/services/courses';
 import { Plus, BookOpen, Edit, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Course } from '@/types';
 
 export default function CoursesPage() {
@@ -27,7 +28,9 @@ export default function CoursesPage() {
     try {
       const data = await getCourses(user.id);
       setCourses(data);
-    } catch {} finally {
+    } catch (error) {
+      console.error('Failed to load courses:', error);
+    } finally {
       setLoading(false);
     }
   }, [user]);
@@ -60,18 +63,29 @@ export default function CoursesPage() {
         await updateCourse(editingCourse.id, { name, code, description, room, schedule, color });
       } else {
         await createCourse({
-          user_id: user.id, semester_id: '', name, code, description: description || null,
+          user_id: user.id, semester_id: null, name, code, description: description || null,
           instructor_id: null, room: room || null, schedule: schedule || null, color,
         });
       }
+      toast.success(editingCourse ? 'Course updated' : 'Course created');
       loadCourses();
       setShowModal(false);
-    } catch {} finally { setSaving(false); }
+    } catch (error) {
+      console.error('Failed to save course:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save course');
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this course?')) return;
-    try { await deleteCourse(id); loadCourses(); } catch {}
+    try {
+      await deleteCourse(id);
+      toast.success('Course deleted');
+      loadCourses();
+    } catch (error) {
+      console.error('Failed to delete course:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete course');
+    }
   };
 
   if (authLoading || loading) {

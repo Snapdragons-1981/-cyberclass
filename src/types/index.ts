@@ -31,7 +31,7 @@ export interface Semester {
 export interface Course {
   id: string;
   user_id: string;
-  semester_id: string;
+  semester_id: string | null;
   name: string;
   code: string;
   description: string | null;
