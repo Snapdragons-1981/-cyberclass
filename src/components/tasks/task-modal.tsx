@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Calendar, Clock, Tag, AlertTriangle, BookOpen, FileText } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Task, TaskType, TaskPriority, Course } from '@/types';
 import { TASK_TYPE_LABELS } from '@/types';
 import { createTask, updateTask } from '@/services/tasks';
@@ -99,6 +100,8 @@ export function TaskModal({ isOpen, onClose, onSave, editingTask, userId }: Task
       onSave?.(result);
       onClose();
     } catch (error) {
+      console.error('Failed to save task:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save task');
     } finally {
       setSaving(false);
     }
