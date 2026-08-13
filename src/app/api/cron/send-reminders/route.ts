@@ -162,6 +162,25 @@ export async function GET(request: NextRequest) {
 
     if (resendApiKey) {
       try {
+        const htmlLines = items
+          .map(({ task, type, message }) => {
+            const course = task.course
+              ? `${task.course.code ?? ''} ${task.course.name}`.trim()
+              : 'No course';
+            const color = type === 'overdue' ? '#ef4444' : type === 'reminder' ? '#f59e0b' : '#3b82f6';
+            return `<li style="margin-bottom:8px;"><span style="color:${color};font-weight:600;">${type === 'overdue' ? 'OVERDUE' : type === 'reminder' ? 'REMINDER' : 'DUE SOON'}</span> — <strong>${task.title}</strong> (${course}) — due ${formatDue(task)}</li>`;
+          })
+          .join('');
+
+        const html = `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+            <h2 style="color:#6366f1;">CyberClass Task Alert</h2>
+            <p>Hi, you have ${items.length} task(s) that need attention:</p>
+            <ul style="list-style:none;padding:0;">${htmlLines}</ul>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;" />
+            <p style="color:#9ca3af;font-size:12px;">— CyberClass</p>
+          </div>`;
+
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -172,12 +191,19 @@ export async function GET(request: NextRequest) {
             from: emailFrom,
             to: [email],
             subject,
+            html,
             text: `Hi, ${items.length} task(s) need attention:\n\n${lines.join('\n')}\n\n-- CyberClass`,
           }),
         });
-        if (res.ok) sentEmails++;
-      } catch {
-        // Email failed, still record in-app notification
+
+        if (res.ok) {
+          sentEmails++;
+        } else {
+          const errBody = await res.text();
+          console.error('[send-reminders] Resend API error:', res.status, errBody);
+        }
+      } catch (err) {
+        console.error('[send-reminders] Email fetch failed:', err);
       }
     }
 
