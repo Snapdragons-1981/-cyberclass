@@ -1,9 +1,15 @@
 'use client';
 
+import { useEffect } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { Toaster } from 'sonner';
+import { triggerReminders } from '@/actions/trigger-reminders';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    triggerReminders().catch(() => {});
+  }, []);
+
   return (
     <AppShell>
       {children}
